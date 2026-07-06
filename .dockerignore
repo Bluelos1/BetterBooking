@@ -1,0 +1,12 @@
+**/bin/
+**/obj/
+**/node_modules/
+**/.next/
+**/coverage/
+**/.turbo/
+.git/
+.env
+.env.*
+!.env.example
+Dockerfile*
+docker-compose*.yml

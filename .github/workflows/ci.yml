@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  BETTERBOOKING_RUN_POSTGRES_TESTS: true
+  DOTNET_NOLOGO: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  backend:
+    name: Backend build and checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore .NET tools
+        run: dotnet tool restore
+
+      - name: Restore
+        run: dotnet restore BetterBooking.sln
+
+      - name: Build
+        run: dotnet build BetterBooking.sln --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test BetterBooking.sln --configuration Release --no-build --verbosity normal
+
+      - name: Format check
+        run: dotnet format BetterBooking.sln --verify-no-changes --no-restore --verbosity minimal
+
+      - name: Dependency vulnerability scan
+        run: dotnet list BetterBooking.sln package --vulnerable --include-transitive
+
+      - name: Generate database migration script
+        run: dotnet tool run dotnet-ef migrations script --idempotent --project apps/backend/src/App.Infrastructure/App.Infrastructure.csproj --startup-project apps/backend/src/App.Infrastructure/App.Infrastructure.csproj --context ApplicationDbContext --output app-db-idempotent.sql
+
+      - name: Upload database migration script
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-db-idempotent-sql
+          path: app-db-idempotent.sql
+
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    if: ${{ hashFiles('apps/web/package.json') != '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Typecheck
+        working-directory: apps/web
+        run: npm run typecheck
+
+      - name: Test
+        working-directory: apps/web
+        run: npm test
+
+      - name: Build
+        working-directory: apps/web
+        run: npm run build

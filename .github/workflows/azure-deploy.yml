@@ -1,0 +1,438 @@
+name: Azure Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target Azure environment.
+        required: true
+        type: choice
+        default: test
+        options:
+          - test
+          - prod
+      deploy_infrastructure:
+        description: Deploy or update Bicep infrastructure before app deployment.
+        required: true
+        type: boolean
+        default: true
+      run_migrations:
+        description: Apply EF Core migrations before app deployment.
+        required: true
+        type: boolean
+        default: true
+      swap_production:
+        description: Swap PROD staging slots to production after smoke tests.
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: azure-deploy-${{ inputs.environment || 'test' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+  DOTNET_NOLOGO: '1'
+  NEXT_TELEMETRY_DISABLED: '1'
+
+jobs:
+  build:
+    name: Build and package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore backend
+        run: dotnet restore BetterBooking.sln
+
+      - name: Build backend
+        run: dotnet build BetterBooking.sln --configuration Release --no-restore
+
+      - name: Test backend
+        run: dotnet test BetterBooking.sln --configuration Release --no-build
+
+      - name: Publish API
+        run: dotnet publish apps/backend/src/App.Api/App.Api.csproj --configuration Release --output "$RUNNER_TEMP/api-publish" /p:UseAppHost=false
+
+      - name: Package API
+        working-directory: ${{ runner.temp }}/api-publish
+        run: zip -r "$RUNNER_TEMP/api.zip" .
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Lint frontend
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: Typecheck frontend
+        working-directory: apps/web
+        run: npm run typecheck
+
+      - name: Test frontend
+        working-directory: apps/web
+        run: npm test
+
+      - name: Build frontend
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Package frontend standalone artifact
+        run: |
+          set -euo pipefail
+          web_publish="$RUNNER_TEMP/web-publish"
+          mkdir -p "$web_publish/.next"
+          cp -R apps/web/.next/standalone/. "$web_publish/"
+          cp -R apps/web/.next/static "$web_publish/.next/static"
+          if [ -d apps/web/public ]; then
+            cp -R apps/web/public "$web_publish/public"
+          fi
+          cd "$web_publish"
+          zip -r "$RUNNER_TEMP/web.zip" .
+
+      - name: Upload API package
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-package
+          path: ${{ runner.temp }}/api.zip
+          if-no-files-found: error
+
+      - name: Upload frontend package
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-package
+          path: ${{ runner.temp }}/web.zip
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy to Azure
+    runs-on: ubuntu-latest
+    needs: build
+    environment: ${{ inputs.environment || 'test' }}
+    env:
+      TARGET_ENVIRONMENT: ${{ inputs.environment || 'test' }}
+      DEPLOY_INFRASTRUCTURE: ${{ github.event_name == 'push' || inputs.deploy_infrastructure }}
+      RUN_MIGRATIONS: ${{ github.event_name == 'push' || inputs.run_migrations }}
+      SWAP_PRODUCTION: ${{ inputs.swap_production || false }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Block unsupported PROD direct deployment
+        if: ${{ env.TARGET_ENVIRONMENT == 'prod' && vars.PROD_DEPLOYMENT_ENABLED != 'true' }}
+        run: |
+          echo "::error::PROD deployment is disabled. Configure PROD slots, approval rules, and set PROD_DEPLOYMENT_ENABLED=true in the prod GitHub environment before deploying."
+          exit 1
+
+      - name: Validate PROD slot settings
+        if: ${{ env.TARGET_ENVIRONMENT == 'prod' && vars.PROD_DEPLOYMENT_ENABLED == 'true' }}
+        env:
+          AZURE_DEPLOYMENT_SLOT_NAME: ${{ vars.AZURE_DEPLOYMENT_SLOT_NAME }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AZURE_DEPLOYMENT_SLOT_NAME:-}" ]; then
+            echo "::error::AZURE_DEPLOYMENT_SLOT_NAME is required for PROD deployments."
+            exit 1
+          fi
+
+      - name: Download API package
+        uses: actions/download-artifact@v4
+        with:
+          name: api-package
+          path: ${{ runner.temp }}/packages/api
+
+      - name: Download frontend package
+        uses: actions/download-artifact@v4
+        with:
+          name: web-package
+          path: ${{ runner.temp }}/packages/web
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Setup .NET for migrations
+        if: ${{ env.RUN_MIGRATIONS == 'true' }}
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Resolve Azure resources
+        id: azure_resources
+        env:
+          RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          LOCATION: ${{ vars.AZURE_LOCATION }}
+          AZURE_NAME_PREFIX: ${{ vars.AZURE_NAME_PREFIX }}
+          AUTHENTICATION_AUTHORITY: ${{ vars.AUTHENTICATION_AUTHORITY }}
+          AUTHENTICATION_AUDIENCE: ${{ vars.AUTHENTICATION_AUDIENCE }}
+          FRONTEND_AUTH_CLIENT_ID: ${{ vars.FRONTEND_AUTH_CLIENT_ID }}
+          FRONTEND_AUTH_SCOPES: ${{ vars.FRONTEND_AUTH_SCOPES }}
+          FRONTEND_AUTH_CLIENT_SECRET_URI: ${{ vars.FRONTEND_AUTH_CLIENT_SECRET_URI }}
+          ALLOW_AZURE_SERVICES_TO_POSTGRESQL: ${{ vars.ALLOW_AZURE_SERVICES_TO_POSTGRESQL }}
+          POSTGRESQL_FIREWALL_RULES_JSON: ${{ vars.POSTGRESQL_FIREWALL_RULES_JSON }}
+          POSTGRESQL_ADMIN_LOGIN: ${{ vars.POSTGRESQL_ADMIN_LOGIN }}
+          POSTGRESQL_DATABASE_NAME: ${{ vars.POSTGRESQL_DATABASE_NAME }}
+          POSTGRESQL_HOST: ${{ vars.POSTGRESQL_HOST }}
+          AZURE_API_APP_NAME: ${{ vars.AZURE_API_APP_NAME }}
+          AZURE_WEB_APP_NAME: ${{ vars.AZURE_WEB_APP_NAME }}
+          AZURE_API_BASE_URL: ${{ vars.AZURE_API_BASE_URL }}
+          AZURE_WEB_BASE_URL: ${{ vars.AZURE_WEB_BASE_URL }}
+          AZURE_KEY_VAULT_NAME: ${{ vars.AZURE_KEY_VAULT_NAME }}
+          POSTGRESQL_ADMIN_PASSWORD: ${{ secrets.POSTGRESQL_ADMIN_PASSWORD }}
+          FRONTEND_AUTH_COOKIE_SECRET: ${{ secrets.FRONTEND_AUTH_COOKIE_SECRET }}
+          FRONTEND_AUTH_CLIENT_SECRET: ${{ secrets.FRONTEND_AUTH_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          require() {
+            local name="$1"
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is required."
+              exit 1
+            fi
+          }
+
+          if [ "$DEPLOY_INFRASTRUCTURE" = "true" ]; then
+            require RESOURCE_GROUP
+            require LOCATION
+            require AUTHENTICATION_AUTHORITY
+            require AUTHENTICATION_AUDIENCE
+            require FRONTEND_AUTH_CLIENT_ID
+            require FRONTEND_AUTH_SCOPES
+            require POSTGRESQL_ADMIN_PASSWORD
+            require FRONTEND_AUTH_COOKIE_SECRET
+
+            name_prefix="${AZURE_NAME_PREFIX:-betterbooking-${TARGET_ENVIRONMENT}}"
+            aspnetcore_environment="Test"
+            if [ "$TARGET_ENVIRONMENT" = "prod" ]; then
+              aspnetcore_environment="Production"
+            fi
+            allow_azure_services="${ALLOW_AZURE_SERVICES_TO_POSTGRESQL:-false}"
+            postgresql_firewall_rules="${POSTGRESQL_FIREWALL_RULES_JSON:-[]}"
+            postgresql_admin_login="${POSTGRESQL_ADMIN_LOGIN:-bbadmin}"
+            postgresql_database_name="${POSTGRESQL_DATABASE_NAME:-betterbooking}"
+
+            parameters=(
+              environmentName="$TARGET_ENVIRONMENT"
+              namePrefix="$name_prefix"
+              location="$LOCATION"
+              authenticationAuthority="$AUTHENTICATION_AUTHORITY"
+              authenticationAudience="$AUTHENTICATION_AUDIENCE"
+              frontendAuthClientId="$FRONTEND_AUTH_CLIENT_ID"
+              frontendAuthScopes="$FRONTEND_AUTH_SCOPES"
+              frontendAuthCookieSecret="$FRONTEND_AUTH_COOKIE_SECRET"
+              postgresqlAdminLogin="$postgresql_admin_login"
+              postgresqlAdminPassword="$POSTGRESQL_ADMIN_PASSWORD"
+              postgresqlDatabaseName="$postgresql_database_name"
+              aspNetCoreEnvironment="$aspnetcore_environment"
+              allowAzureServicesToPostgreSql="$allow_azure_services"
+              postgresqlFirewallRules="$postgresql_firewall_rules"
+            )
+
+            if [ -n "${FRONTEND_AUTH_CLIENT_SECRET:-}" ]; then
+              parameters+=(frontendAuthClientSecret="$FRONTEND_AUTH_CLIENT_SECRET")
+            fi
+
+            if [ -n "${FRONTEND_AUTH_CLIENT_SECRET_URI:-}" ]; then
+              parameters+=(frontendAuthClientSecretUri="$FRONTEND_AUTH_CLIENT_SECRET_URI")
+            fi
+
+            az bicep build --file infra/bicep/main.bicep --stdout > /dev/null
+            az group create --name "$RESOURCE_GROUP" --location "$LOCATION" --tags environment="$TARGET_ENVIRONMENT" workload=betterbooking > /dev/null
+
+            deployment_outputs="$(az deployment group create \
+              --resource-group "$RESOURCE_GROUP" \
+              --template-file infra/bicep/main.bicep \
+              --parameters "${parameters[@]}" \
+              --query properties.outputs \
+              --output json)"
+
+            api_app_name="$(jq -r '.apiAppName.value' <<< "$deployment_outputs")"
+            web_app_name="$(jq -r '.webAppName.value' <<< "$deployment_outputs")"
+            api_base_url="$(jq -r '.apiBaseUrl.value' <<< "$deployment_outputs")"
+            web_base_url="$(jq -r '.webBaseUrl.value' <<< "$deployment_outputs")"
+            key_vault_name="$(jq -r '.keyVaultName.value' <<< "$deployment_outputs")"
+            postgresql_host="$(jq -r '.postgresqlHost.value' <<< "$deployment_outputs")"
+          else
+            require RESOURCE_GROUP
+            require AZURE_API_APP_NAME
+            require AZURE_WEB_APP_NAME
+            require AZURE_KEY_VAULT_NAME
+            postgresql_admin_login="${POSTGRESQL_ADMIN_LOGIN:-bbadmin}"
+            postgresql_database_name="${POSTGRESQL_DATABASE_NAME:-betterbooking}"
+            postgresql_host="$POSTGRESQL_HOST"
+            api_app_name="$AZURE_API_APP_NAME"
+            web_app_name="$AZURE_WEB_APP_NAME"
+            api_base_url="${AZURE_API_BASE_URL:-https://${api_app_name}.azurewebsites.net}"
+            web_base_url="${AZURE_WEB_BASE_URL:-https://${web_app_name}.azurewebsites.net}"
+            key_vault_name="$AZURE_KEY_VAULT_NAME"
+          fi
+
+          {
+            echo "resource_group=$RESOURCE_GROUP"
+            echo "api_app_name=$api_app_name"
+            echo "web_app_name=$web_app_name"
+            echo "api_base_url=$api_base_url"
+            echo "web_base_url=$web_base_url"
+            echo "key_vault_name=$key_vault_name"
+            echo "postgresql_host=$postgresql_host"
+            echo "postgresql_admin_login=$postgresql_admin_login"
+            echo "postgresql_database_name=$postgresql_database_name"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve deployment target
+        id: deployment_target
+        env:
+          API_APP_NAME: ${{ steps.azure_resources.outputs.api_app_name }}
+          WEB_APP_NAME: ${{ steps.azure_resources.outputs.web_app_name }}
+          API_BASE_URL: ${{ steps.azure_resources.outputs.api_base_url }}
+          WEB_BASE_URL: ${{ steps.azure_resources.outputs.web_base_url }}
+          AZURE_DEPLOYMENT_SLOT_NAME: ${{ vars.AZURE_DEPLOYMENT_SLOT_NAME }}
+        run: |
+          set -euo pipefail
+
+          if [ "$TARGET_ENVIRONMENT" = "prod" ]; then
+            slot_name="$AZURE_DEPLOYMENT_SLOT_NAME"
+            api_smoke_base_url="https://${API_APP_NAME}-${slot_name}.azurewebsites.net"
+            web_smoke_base_url="https://${WEB_APP_NAME}-${slot_name}.azurewebsites.net"
+          else
+            slot_name=""
+            api_smoke_base_url="$API_BASE_URL"
+            web_smoke_base_url="$WEB_BASE_URL"
+          fi
+
+          {
+            echo "slot_name=$slot_name"
+            echo "api_smoke_base_url=$api_smoke_base_url"
+            echo "web_smoke_base_url=$web_smoke_base_url"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Apply database migrations
+        if: ${{ env.RUN_MIGRATIONS == 'true' }}
+        env:
+          POSTGRESQL_HOST: ${{ steps.azure_resources.outputs.postgresql_host }}
+          POSTGRESQL_ADMIN_LOGIN: ${{ steps.azure_resources.outputs.postgresql_admin_login }}
+          POSTGRESQL_DATABASE_NAME: ${{ steps.azure_resources.outputs.postgresql_database_name }}
+          POSTGRESQL_ADMIN_PASSWORD: ${{ secrets.POSTGRESQL_ADMIN_PASSWORD }}
+          POSTGRESQL_MIGRATION_CONNECTION_STRING: ${{ secrets.POSTGRESQL_MIGRATION_CONNECTION_STRING }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${POSTGRESQL_MIGRATION_CONNECTION_STRING:-}" ]; then
+            connection_string="$POSTGRESQL_MIGRATION_CONNECTION_STRING"
+          else
+            if [ -z "${POSTGRESQL_HOST:-}" ] || [ -z "${POSTGRESQL_ADMIN_LOGIN:-}" ] || [ -z "${POSTGRESQL_DATABASE_NAME:-}" ] || [ -z "${POSTGRESQL_ADMIN_PASSWORD:-}" ]; then
+              echo "::error::Migrations require POSTGRESQL_MIGRATION_CONNECTION_STRING or PostgreSQL host/login/database plus POSTGRESQL_ADMIN_PASSWORD."
+              exit 1
+            fi
+            connection_string="Host=${POSTGRESQL_HOST};Port=5432;Database=${POSTGRESQL_DATABASE_NAME};Username=${POSTGRESQL_ADMIN_LOGIN};Password=${POSTGRESQL_ADMIN_PASSWORD};SSL Mode=Require;Trust Server Certificate=false;Include Error Detail=false"
+          fi
+
+          echo "::add-mask::$connection_string"
+          dotnet tool restore
+          BETTERBOOKING_DESIGNTIME_CONNECTION_STRING="$connection_string" dotnet ef database update \
+            --project apps/backend/src/App.Infrastructure/App.Infrastructure.csproj \
+            --startup-project apps/backend/src/App.Api/App.Api.csproj \
+            --configuration Release
+
+      - name: Deploy API to TEST App Service
+        if: ${{ env.TARGET_ENVIRONMENT != 'prod' }}
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ steps.azure_resources.outputs.api_app_name }}
+          package: ${{ runner.temp }}/packages/api/api.zip
+
+      - name: Deploy frontend to TEST App Service
+        if: ${{ env.TARGET_ENVIRONMENT != 'prod' }}
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ steps.azure_resources.outputs.web_app_name }}
+          package: ${{ runner.temp }}/packages/web/web.zip
+
+      - name: Deploy API to PROD staging slot
+        if: ${{ env.TARGET_ENVIRONMENT == 'prod' }}
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ steps.azure_resources.outputs.api_app_name }}
+          slot-name: ${{ steps.deployment_target.outputs.slot_name }}
+          package: ${{ runner.temp }}/packages/api/api.zip
+
+      - name: Deploy frontend to PROD staging slot
+        if: ${{ env.TARGET_ENVIRONMENT == 'prod' }}
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: ${{ steps.azure_resources.outputs.web_app_name }}
+          slot-name: ${{ steps.deployment_target.outputs.slot_name }}
+          package: ${{ runner.temp }}/packages/web/web.zip
+
+      - name: Smoke deployed apps
+        env:
+          API_SMOKE_BASE_URL: ${{ steps.deployment_target.outputs.api_smoke_base_url }}
+          WEB_SMOKE_BASE_URL: ${{ steps.deployment_target.outputs.web_smoke_base_url }}
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --retry 12 --retry-delay 10 "$API_SMOKE_BASE_URL/health/live" > /dev/null
+          curl --fail --show-error --silent --retry 12 --retry-delay 10 "$API_SMOKE_BASE_URL/health/ready" > /dev/null
+          curl --fail --show-error --silent --retry 12 --retry-delay 10 "$WEB_SMOKE_BASE_URL" > /dev/null
+
+      - name: Swap PROD staging slots
+        if: ${{ env.TARGET_ENVIRONMENT == 'prod' && env.SWAP_PRODUCTION == 'true' }}
+        env:
+          RESOURCE_GROUP: ${{ steps.azure_resources.outputs.resource_group }}
+          API_APP_NAME: ${{ steps.azure_resources.outputs.api_app_name }}
+          WEB_APP_NAME: ${{ steps.azure_resources.outputs.web_app_name }}
+          SLOT_NAME: ${{ steps.deployment_target.outputs.slot_name }}
+        run: |
+          set -euo pipefail
+          az webapp deployment slot swap --resource-group "$RESOURCE_GROUP" --name "$API_APP_NAME" --slot "$SLOT_NAME" --target-slot production
+          az webapp deployment slot swap --resource-group "$RESOURCE_GROUP" --name "$WEB_APP_NAME" --slot "$SLOT_NAME" --target-slot production
+
+      - name: Smoke PROD production slots
+        if: ${{ env.TARGET_ENVIRONMENT == 'prod' && env.SWAP_PRODUCTION == 'true' }}
+        env:
+          API_BASE_URL: ${{ steps.azure_resources.outputs.api_base_url }}
+          WEB_BASE_URL: ${{ steps.azure_resources.outputs.web_base_url }}
+        run: |
+          set -euo pipefail
+          curl --fail --show-error --silent --retry 12 --retry-delay 10 "$API_BASE_URL/health/live" > /dev/null
+          curl --fail --show-error --silent --retry 12 --retry-delay 10 "$API_BASE_URL/health/ready" > /dev/null
+          curl --fail --show-error --silent --retry 12 --retry-delay 10 "$WEB_BASE_URL" > /dev/null
+
+      - name: Report deployment URLs
+        env:
+          API_BASE_URL: ${{ steps.azure_resources.outputs.api_base_url }}
+          WEB_BASE_URL: ${{ steps.azure_resources.outputs.web_base_url }}
+          API_SMOKE_BASE_URL: ${{ steps.deployment_target.outputs.api_smoke_base_url }}
+          WEB_SMOKE_BASE_URL: ${{ steps.deployment_target.outputs.web_smoke_base_url }}
+        run: |
+          echo "API production URL: $API_BASE_URL"
+          echo "Web production URL: $WEB_BASE_URL"
+          echo "API deployed URL: $API_SMOKE_BASE_URL"
+          echo "Web deployed URL: $WEB_SMOKE_BASE_URL"
