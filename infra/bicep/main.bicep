@@ -67,7 +67,7 @@ param postgresqlSkuTier string = 'Burstable'
 @minValue(32)
 param postgresqlStorageSizeGb int = 32
 
-@description('PostgreSQL firewall rules. Use explicit CIDR/IP ranges for TEST. Example item: { name: ''office'', startIpAddress: ''203.0.113.10'', endIpAddress: ''203.0.113.10'' }.')
+@description('PostgreSQL firewall rules. Use explicit CIDR/IP ranges for TEST.')
 param postgresqlFirewallRules array = []
 
 @description('Temporarily allow Azure services to reach PostgreSQL by adding the 0.0.0.0 firewall rule. Prefer private networking before PROD.')
