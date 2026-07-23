@@ -356,6 +356,7 @@ jobs:
           fi
 
           echo "::add-mask::$connection_string"
+          dotnet restore apps/backend/src/App.Api/App.Api.csproj
           dotnet tool restore
           BETTERBOOKING_DESIGNTIME_CONNECTION_STRING="$connection_string" dotnet ef database update \
             --project apps/backend/src/App.Infrastructure/App.Infrastructure.csproj \
