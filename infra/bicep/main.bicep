@@ -189,6 +189,15 @@ resource postgresqlServer 'Microsoft.DBforPostgreSQL/flexibleServers@2023-06-01-
   }
 }
 
+resource postgresqlExtensionsConfiguration 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2023-06-01-preview' = {
+  parent: postgresqlServer
+  name: 'azure.extensions'
+  properties: {
+    value: 'btree_gist'
+    source: 'user-override'
+  }
+}
+
 resource postgresqlDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-preview' = {
   parent: postgresqlServer
   name: postgresqlDatabaseName
