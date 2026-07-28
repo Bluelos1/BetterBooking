@@ -45,7 +45,7 @@
 - `GET /api/v1/listings` supports `q`, `page`, and `pageSize`; `pageSize` is capped at 50.
 - `GET /api/v1/listings/{listingId}` returns `404` for missing, draft, suspended, or archived listings.
 - `GET /api/v1/listings/{listingId}/availability` reports apparent availability for a date range, but reservation creation remains the source-of-truth write path.
-- Listing creation and owner actions are protected by authentication and the `property-admin` policy.
+- Any authenticated user may create listings. The backend derives the owner from the authenticated identity.
 - The request body must not contain `OwnerUserId`; the backend derives the owner from the authenticated internal user id.
 - `GET /api/v1/me/listings` returns only listings owned by the authenticated internal user, including non-public statuses.
 - Publishing a listing requires backend owner verification.

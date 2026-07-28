@@ -1,13 +1,18 @@
 import { createHash, randomBytes } from "node:crypto";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import type { AuthConfig } from "./config";
 
 export type OidcMetadata = {
+  issuer: string;
   authorization_endpoint: string;
   token_endpoint: string;
+  jwks_uri: string;
+  end_session_endpoint?: string;
 };
 
 export type AuthTransaction = {
   state: string;
+  nonce: string;
   codeVerifier: string;
   returnTo: string;
   redirectUri: string;
@@ -30,13 +35,13 @@ export type SessionUser = {
 };
 
 export type AuthorizationUrlOptions = {
-  loginHint?: string;
   screenHint?: "signup";
 };
 
 export function createAuthTransaction(returnTo: string, redirectUri: string): AuthTransaction {
   return {
     state: randomBase64Url(32),
+    nonce: randomBase64Url(32),
     codeVerifier: randomBase64Url(64),
     returnTo: sanitizeReturnTo(returnTo),
     redirectUri,
@@ -55,13 +60,11 @@ export function buildAuthorizationUrl(
   url.searchParams.set("response_type", "code");
   url.searchParams.set("redirect_uri", transaction.redirectUri);
   url.searchParams.set("scope", config.scopes);
+  url.searchParams.set("audience", config.audience);
   url.searchParams.set("state", transaction.state);
+  url.searchParams.set("nonce", transaction.nonce);
   url.searchParams.set("code_challenge", createCodeChallenge(transaction.codeVerifier));
   url.searchParams.set("code_challenge_method", "S256");
-
-  if (options.loginHint) {
-    url.searchParams.set("login_hint", options.loginHint);
-  }
 
   if (options.screenHint) {
     url.searchParams.set("screen_hint", options.screenHint);
@@ -73,6 +76,7 @@ export function buildAuthorizationUrl(
 export async function discoverOidcMetadata(issuer: string): Promise<OidcMetadata> {
   const response = await fetch(`${issuer}/.well-known/openid-configuration`, {
     cache: "no-store",
+    signal: AbortSignal.timeout(5_000),
     headers: {
       Accept: "application/json"
     }
@@ -84,13 +88,16 @@ export async function discoverOidcMetadata(issuer: string): Promise<OidcMetadata
 
   const metadata = (await response.json()) as Partial<OidcMetadata>;
 
-  if (!metadata.authorization_endpoint || !metadata.token_endpoint) {
+  if (!metadata.issuer || !metadata.authorization_endpoint || !metadata.token_endpoint || !metadata.jwks_uri) {
     throw new Error("OIDC metadata is missing required endpoints.");
   }
 
   return {
+    issuer: metadata.issuer,
     authorization_endpoint: metadata.authorization_endpoint,
-    token_endpoint: metadata.token_endpoint
+    token_endpoint: metadata.token_endpoint,
+    jwks_uri: metadata.jwks_uri,
+    end_session_endpoint: metadata.end_session_endpoint
   };
 }
 
@@ -124,30 +131,69 @@ export async function exchangeCodeForTokens(
   return (await response.json()) as TokenResponse;
 }
 
-export function parseIdTokenUser(idToken: string | undefined): SessionUser {
+export async function verifyIdToken(
+  idToken: string | undefined,
+  metadata: OidcMetadata,
+  config: AuthConfig,
+  transaction: AuthTransaction
+): Promise<SessionUser> {
   if (!idToken) {
-    return { roles: [] };
+    throw new Error("OIDC token response is missing an ID token.");
   }
 
-  const [, payload] = idToken.split(".");
+  const jwks = createRemoteJWKSet(new URL(metadata.jwks_uri), { timeoutDuration: 5_000 });
+  const { payload } = await jwtVerify(idToken, jwks, {
+    algorithms: ["RS256"],
+    issuer: metadata.issuer,
+    audience: config.clientId,
+    maxTokenAge: "10m"
+  });
 
-  if (!payload) {
-    return { roles: [] };
+  if (typeof payload.sub !== "string" || typeof payload.iat !== "number" || typeof payload.exp !== "number") {
+    throw new Error("OIDC ID token is missing required claims.");
   }
 
-  try {
-    const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
-    const name = typeof claims.name === "string" ? claims.name : undefined;
-    const email = typeof claims.email === "string" ? claims.email : undefined;
-    const roles = extractRoles(claims);
-
-    return { name, email, roles };
-  } catch {
-    return { roles: [] };
+  if (Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== config.clientId) {
+    throw new Error("OIDC ID token authorized party is invalid.");
   }
+
+  if (payload.nonce !== transaction.nonce) {
+    throw new Error("OIDC ID token nonce is invalid.");
+  }
+
+  return toSessionUser(payload);
 }
 
-function extractRoles(claims: Record<string, unknown>): string[] {
+export function buildLogoutUrl(
+  metadata: OidcMetadata,
+  config: AuthConfig,
+  returnUrl: string,
+  idTokenHint?: string
+): string | null {
+  if (!metadata.end_session_endpoint) {
+    return null;
+  }
+
+  const url = new URL(metadata.end_session_endpoint);
+  url.searchParams.set("client_id", config.clientId);
+  url.searchParams.set("post_logout_redirect_uri", returnUrl);
+  url.searchParams.set("returnTo", returnUrl);
+
+  if (idTokenHint) {
+    url.searchParams.set("id_token_hint", idTokenHint);
+  }
+
+  return url.toString();
+}
+
+function toSessionUser(claims: JWTPayload): SessionUser {
+  const name = typeof claims.name === "string" ? claims.name : undefined;
+  const email = typeof claims.email === "string" ? claims.email : undefined;
+
+  return { name, email, roles: extractRoles(claims) };
+}
+
+function extractRoles(claims: JWTPayload): string[] {
   const role = claims.role;
   const roles = claims.roles;
 

@@ -7,7 +7,7 @@ import { SignInRequired } from "@/components/SignInRequired";
 import { StatusPill } from "@/components/StatusPill";
 import { getMyListings } from "@/lib/api";
 import { getSession } from "@/lib/auth/session";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatMoney } from "@/lib/format";
 
 type MyListingsPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -24,40 +24,22 @@ export default async function MyListingsPage({ searchParams }: MyListingsPagePro
     return (
       <main className="page">
         <PageHeading />
-        <SignInRequired returnTo="/me/listings" />
-      </main>
-    );
-  }
-
-  const isAdmin = session.user.roles.includes("admin") || session.user.roles.includes("host");
-
-  if (!isAdmin) {
-    return (
-      <main className="page">
-        <PageHeading />
-        <section className="notice auth" role="status">
-          <p className="eyebrow">Admin workspace</p>
-          <h2>Switch to property admin to manage listings.</h2>
-          <p>Traveler accounts can book stays and manage trips. Property admins create hotels and apartments.</p>
-          <Link className="button primary" href="/sign-in?returnTo=/me/listings">Sign in as property admin</Link>
-        </section>
+        <SignInRequired returnTo="/me/listings" title="Sign in to manage your listings" />
       </main>
     );
   }
 
   const result = await getMyListings({ page, pageSize: 20 }, session.accessToken);
+  const openCreateForm = Boolean(error) || (result.ok && result.data.totalCount === 0);
+  const currentReturnTo = page > 1 ? `/me/listings?page=${page}` : "/me/listings";
 
   return (
     <main className="page">
       <PageHeading />
       <ActionNotice status={status} error={error} />
 
-      <section className="form-card listing-form-card" aria-labelledby="create-listing-heading">
-        <div>
-          <p className="eyebrow">New hotel or apartment</p>
-          <h2 id="create-listing-heading">Create a complete listing</h2>
-          <p>Add enough detail for guests to understand the stay before it goes public.</p>
-        </div>
+      <details className="form-card listing-form-card" open={openCreateForm}>
+        <summary id="create-listing-heading">Add a listing</summary>
         <form className="listing-create-form" action="/api/listings/create" method="post">
           <input type="hidden" name="returnTo" value="/me/listings" />
           <label>
@@ -78,8 +60,8 @@ export default async function MyListingsPage({ searchParams }: MyListingsPagePro
             />
           </label>
           <label>
-            Price per night
-            <input name="nightlyPriceAmount" type="number" min="1" step="0.01" placeholder="180" required />
+            Price per night (USD)
+            <input name="nightlyPriceAmount" type="number" min="1" max="100000" step="0.01" placeholder="180" required />
           </label>
           <label>
             Max guests
@@ -94,23 +76,23 @@ export default async function MyListingsPage({ searchParams }: MyListingsPagePro
             <input name="bathroomCount" type="number" min="1" max="50" defaultValue="1" required />
           </label>
           <label className="wide-field">
-            Hero image URL optional
+            Hero image URL (optional)
             <input name="heroImageUrl" type="url" placeholder="https://images.example/stay.jpg" maxLength={2048} />
           </label>
           <label className="wide-field">
             Amenities
             <input name="amenities" placeholder="Wi-Fi, kitchen, workspace, self check-in" maxLength={500} />
           </label>
-          <button className="button primary wide-field" type="submit">Create detailed draft</button>
+          <button className="button primary wide-field" type="submit">Save draft</button>
         </form>
-      </section>
+      </details>
 
       {!result.ok && result.error.status === 401 ? (
         <SignInRequired returnTo="/me/listings" />
       ) : !result.ok ? (
         <ApiErrorPanel context="My listings" error={result.error} />
-      ) : result.data.items.length === 0 ? (
-        <EmptyState title="No host listings yet" body="Create a detailed draft above, review it, then publish when it is ready for guests." />
+      ) : result.data.totalCount === 0 ? (
+        <EmptyState title="No listings yet" body="Add your first apartment or hotel, then publish it when the details are ready." />
       ) : (
         <section className="host-listings-section" aria-label="My listings">
           <PaginationSummary
@@ -118,8 +100,17 @@ export default async function MyListingsPage({ searchParams }: MyListingsPagePro
             pageSize={result.data.pageSize}
             totalCount={result.data.totalCount}
             hasNextPage={result.data.hasNextPage}
+            basePath="/me/listings"
           />
           <div className="host-listing-grid">
+            {result.data.items.length === 0 ? (
+              <EmptyState
+                title="This page is empty"
+                body="Return to the previous page to continue managing your listings."
+                actionHref={`/me/listings?page=${Math.max(1, page - 1)}`}
+                actionLabel="Previous page"
+              />
+            ) : null}
             {result.data.items.map((listing) => (
               <article className="host-listing-card" key={listing.id}>
                 <div className="listing-thumb" style={listing.heroImageUrl ? { backgroundImage: `url(${listing.heroImageUrl})` } : undefined} />
@@ -131,29 +122,27 @@ export default async function MyListingsPage({ searchParams }: MyListingsPagePro
                     </div>
                     <StatusPill status={listing.status} />
                   </div>
-                  <p>{listing.description}</p>
+                  <p className="listing-description">{listing.description}</p>
                   <div className="listing-facts">
-                    <span>{formatMoney(listing.nightlyPriceAmount)} / night</span>
-                    <span>{listing.maxGuests} guests</span>
-                    <span>{listing.bedroomCount} bedrooms</span>
-                    <span>{listing.bathroomCount} baths</span>
+                    <strong>{formatMoney(listing.nightlyPriceAmount)} night</strong>
+                    <span>{listing.maxGuests} guests · {listing.bedroomCount} bedrooms · {listing.bathroomCount} baths</span>
                   </div>
                   {listing.amenities ? <p className="muted">{listing.amenities}</p> : null}
                   <div className="card-footer-row">
                     <span className="muted">Created {formatDateTime(listing.createdAt)}</span>
                     {listing.status === "Published"
                       ? <Link className="text-link" href={`/listings/${listing.id}`}>Open public page</Link>
-                      : <span className="muted">Hidden from guests</span>}
+                      : null}
                   </div>
                   <div className="action-row">
                     {listing.status === "Draft" ? (
-                      <LifecycleForm action={`/api/listings/${listing.id}/publish`} label="Publish" />
+                      <LifecycleForm action={`/api/listings/${listing.id}/publish`} label="Publish" returnTo={currentReturnTo} />
                     ) : null}
                     {listing.status === "Published" ? (
-                      <LifecycleForm action={`/api/listings/${listing.id}/unpublish`} label="Unpublish" />
+                      <LifecycleForm action={`/api/listings/${listing.id}/unpublish`} label="Unpublish" returnTo={currentReturnTo} />
                     ) : null}
                     {listing.status !== "Archived" ? (
-                      <LifecycleForm action={`/api/listings/${listing.id}/archive`} label="Archive" danger />
+                      <LifecycleForm action={`/api/listings/${listing.id}/archive`} label="Archive" returnTo={currentReturnTo} danger />
                     ) : null}
                     {listing.status === "Archived" ? <span className="muted">No actions</span> : null}
                   </div>
@@ -167,10 +156,10 @@ export default async function MyListingsPage({ searchParams }: MyListingsPagePro
   );
 }
 
-function LifecycleForm({ action, label, danger = false }: { action: string; label: string; danger?: boolean }) {
+function LifecycleForm({ action, label, returnTo, danger = false }: { action: string; label: string; returnTo: string; danger?: boolean }) {
   return (
     <form action={action} method="post">
-      <input type="hidden" name="returnTo" value="/me/listings" />
+      <input type="hidden" name="returnTo" value={returnTo} />
       <button className={danger ? "button compact danger" : "button compact secondary"} type="submit">
         {label}
       </button>
@@ -181,19 +170,10 @@ function LifecycleForm({ action, label, danger = false }: { action: string; labe
 function PageHeading() {
   return (
     <section className="page-heading">
-      <p className="eyebrow">Owner workspace</p>
-      <h1>Host dashboard</h1>
-      <p>Create hotel and apartment listings, publish them when ready, and keep guest-facing details consistent.</p>
+      <h1>Your listings</h1>
+      <p>Create, publish, and manage your apartments or hotels.</p>
     </section>
   );
-}
-
-function formatMoney(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0
-  }).format(value);
 }
 
 function getSingle(value: string | string[] | undefined): string | undefined {

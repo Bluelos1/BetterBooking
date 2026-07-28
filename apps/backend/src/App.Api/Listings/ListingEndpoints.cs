@@ -39,16 +39,18 @@ public static class ListingEndpoints
 
         group.MapPost("", CreateListingAsync)
             .WithName("CreateListing")
-            .RequireAuthorization(AuthorizationPolicies.PropertyAdmin)
+            .RequireAuthorization(AuthorizationPolicies.AuthenticatedUser)
+            .RequireRateLimiting(RateLimitPolicies.ListingCreation)
             .Produces<CreateListingResponse>(StatusCodes.Status201Created)
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
+            .ProducesProblem(StatusCodes.Status429TooManyRequests)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
         group.MapPost("/{listingId:guid}/publish", PublishListingAsync)
             .WithName("PublishListing")
-            .RequireAuthorization(AuthorizationPolicies.PropertyAdmin)
+            .RequireAuthorization(AuthorizationPolicies.AuthenticatedUser)
             .Produces<CreateListingResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
@@ -58,7 +60,7 @@ public static class ListingEndpoints
 
         group.MapPost("/{listingId:guid}/unpublish", UnpublishListingAsync)
             .WithName("UnpublishListing")
-            .RequireAuthorization(AuthorizationPolicies.PropertyAdmin)
+            .RequireAuthorization(AuthorizationPolicies.AuthenticatedUser)
             .Produces<CreateListingResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)
@@ -68,7 +70,7 @@ public static class ListingEndpoints
 
         group.MapPost("/{listingId:guid}/archive", ArchiveListingAsync)
             .WithName("ArchiveListing")
-            .RequireAuthorization(AuthorizationPolicies.PropertyAdmin)
+            .RequireAuthorization(AuthorizationPolicies.AuthenticatedUser)
             .Produces<CreateListingResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status403Forbidden)

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ActionNotice } from "@/components/ActionNotice";
 import { ApiErrorPanel } from "@/components/ApiErrorPanel";
 import { checkListingAvailability, getListing } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { formatMoney } from "@/lib/format";
 
 type ListingPageProps = {
   params: Promise<{ listingId: string }>;
@@ -36,28 +36,22 @@ export default async function ListingPage({ params, searchParams }: ListingPageP
         <ApiErrorPanel context="Listing detail" error={listingResult.error} />
       ) : (
         <>
-          <section className="detail-hero">
-            <div className="detail-copy">
+          <section className="detail-layout">
+            <article className="detail-content">
+              <div className="detail-copy">
               <p className="eyebrow">{listingResult.data.location}</p>
               <h1>{listingResult.data.title}</h1>
-              <p>{listingResult.data.description}</p>
-              <div className="listing-facts large">
-                <span>{formatMoney(listingResult.data.nightlyPriceAmount)} / night</span>
-                <span>{listingResult.data.maxGuests} guests</span>
-                <span>{listingResult.data.bedroomCount} bedrooms</span>
-                <span>{listingResult.data.bathroomCount} baths</span>
               </div>
-              {listingResult.data.amenities ? <p className="muted">Amenities: {listingResult.data.amenities}</p> : null}
-              <p className="muted">Published {formatDate(listingResult.data.createdAt)}</p>
-            </div>
-            <div className="detail-media" style={listingResult.data.heroImageUrl ? { backgroundImage: `url(${listingResult.data.heroImageUrl})` } : undefined} />
-          </section>
+              <div className="detail-media" style={listingResult.data.heroImageUrl ? { backgroundImage: `url(${listingResult.data.heroImageUrl})` } : undefined} />
+              <p>{listingResult.data.description}</p>
+              <p className="detail-summary">{listingResult.data.maxGuests} guests · {listingResult.data.bedroomCount} bedrooms · {listingResult.data.bathroomCount} baths</p>
+              {listingResult.data.amenities ? <div><h2>Amenities</h2><p>{listingResult.data.amenities}</p></div> : null}
+            </article>
 
-          <section className="availability-card" aria-labelledby="availability-heading">
+          <aside className="availability-card" aria-labelledby="availability-heading">
             <div>
-              <p className="eyebrow">Availability</p>
-              <h2 id="availability-heading">Check a date range</h2>
-              <p>Adjacent reservations are allowed; overlapping active reservations are not.</p>
+              <p className="booking-price"><strong>{formatMoney(listingResult.data.nightlyPriceAmount)}</strong> night</p>
+              <h2 id="availability-heading">Choose your dates</h2>
             </div>
             <form className="date-form" method="get">
               <label>
@@ -68,7 +62,7 @@ export default async function ListingPage({ params, searchParams }: ListingPageP
                 End date
                 <input name="endDate" type="date" defaultValue={endDate ?? ""} required />
               </label>
-              <button className="button primary" type="submit">Check availability</button>
+              <button className="button primary" type="submit">Check dates</button>
             </form>
             {availabilityResult ? (
               <AvailabilityResult
@@ -79,6 +73,7 @@ export default async function ListingPage({ params, searchParams }: ListingPageP
                 nightlyPriceAmount={listingResult.data.nightlyPriceAmount}
               />
             ) : null}
+          </aside>
           </section>
         </>
       )}
@@ -113,8 +108,8 @@ function AvailabilityResult({
         <h3>{result.data.available ? "Available" : "Unavailable"}</h3>
         <p>
           {result.data.available
-            ? `${nights} night${nights === 1 ? "" : "s"} estimated at ${formatMoney(total)} before fees. Demo payment is completed after the reservation hold.`
-            : "An active reservation overlaps this date range."}
+            ? `${nights} night${nights === 1 ? "" : "s"} · ${formatMoney(total)} before fees.`
+            : "Try another date range."}
         </p>
       </div>
       {result.data.available ? (
@@ -127,7 +122,7 @@ function AvailabilityResult({
             name="returnTo"
             value={`/listings/${listingId}?startDate=${encodeURIComponent(startDate ?? result.data.startDate)}&endDate=${encodeURIComponent(endDate ?? result.data.endDate)}`}
           />
-          <button className="button primary" type="submit">Hold reservation</button>
+          <button className="button primary" type="submit">Hold these dates</button>
         </form>
       ) : null}
     </div>
@@ -140,14 +135,6 @@ function calculateNights(startDate: string, endDate: string): number {
   const nights = Math.round((end - start) / 86_400_000);
 
   return Number.isFinite(nights) && nights > 0 ? nights : 0;
-}
-
-function formatMoney(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 0
-  }).format(value);
 }
 
 function getSingle(value: string | string[] | undefined): string | undefined {

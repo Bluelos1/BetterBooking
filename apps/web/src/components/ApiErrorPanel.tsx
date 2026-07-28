@@ -6,14 +6,12 @@ type ApiErrorPanelProps = {
 };
 
 export function ApiErrorPanel({ error, context }: ApiErrorPanelProps) {
-  const message = error.status === 0
-    ? "Start the backend API and set BETTERBOOKING_API_BASE_URL if it is not running on http://localhost:5245."
-    : error.detail ?? "The API returned an error response.";
+  const message = error.status === 0 ? "Please try again shortly." : error.detail ?? "Please try again.";
 
   return (
     <section className="notice error" role="status">
       <p className="eyebrow">{context}</p>
-      <h2>{error.status === 0 ? "API is unreachable" : `${error.status} ${error.title}`}</h2>
+      <h2>{error.status === 0 ? "We could not load this content" : error.title}</h2>
       <p>{message}</p>
     </section>
   );

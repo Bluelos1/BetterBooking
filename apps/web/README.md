@@ -25,10 +25,11 @@ Authentication uses OIDC authorization code flow with PKCE. Access tokens are st
 
 Required runtime settings:
 
-- `BETTERBOOKING_AUTH_ISSUER`: OIDC issuer, such as the Microsoft Entra External ID authority.
+- `BETTERBOOKING_AUTH_ISSUER`: OIDC issuer, such as `https://your-tenant.eu.auth0.com`.
+- `BETTERBOOKING_AUTH_AUDIENCE`: Auth0 API Identifier; it must match backend `Authentication:Audience`.
 - `BETTERBOOKING_AUTH_CLIENT_ID`: frontend application client id.
-- `BETTERBOOKING_AUTH_CLIENT_SECRET`: optional confidential-client secret, set only in secure local/user or hosting configuration.
-- `BETTERBOOKING_AUTH_SCOPES`: OIDC scopes plus the backend API scope required for the access token audience.
+- `BETTERBOOKING_AUTH_CLIENT_SECRET`: Auth0 Regular Web Application client secret, set only in secure local/user or hosting configuration.
+- `BETTERBOOKING_AUTH_SCOPES`: OIDC scopes, normally `openid profile email`.
 - `BETTERBOOKING_AUTH_COOKIE_SECRET`: high-entropy value used to encrypt the session cookie.
 - `BETTERBOOKING_WEB_BASE_URL`: frontend origin used to build the callback URL outside localhost.
 
@@ -37,6 +38,8 @@ Register this redirect URI with the identity provider:
 ```text
 {BETTERBOOKING_WEB_BASE_URL}/api/auth/callback
 ```
+
+Register `{BETTERBOOKING_WEB_BASE_URL}/` as an allowed logout URL. See `docs/deployment/auth0.md`.
 
 Do not commit actual values for secret-bearing settings. The backend must also be configured with matching `Authentication:Authority` and `Authentication:Audience` values.
 

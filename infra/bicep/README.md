@@ -22,7 +22,7 @@ Do not commit real secret values in parameter files, docs, appsettings, or examp
 - `authenticationAuthority`: TEST OIDC issuer/authority.
 - `authenticationAudience`: TEST backend API token audience.
 - `frontendAuthClientId`: TEST frontend OIDC client id.
-- `frontendAuthScopes`: OIDC scopes plus the backend API scope.
+- `frontendAuthScopes`: OIDC scopes, normally `openid profile email`; `authenticationAudience` is sent separately.
 - `frontendAuthCookieSecret`: secure, high-entropy frontend session cookie encryption key.
 - `postgresqlAdminPassword`: secure PostgreSQL administrator password.
 - `postgresqlFirewallRules` or `allowAzureServicesToPostgreSql`: temporary TEST network access until private networking is added.
@@ -51,7 +51,7 @@ az deployment group create \
   --parameters frontendAuthCookieSecret="$BETTERBOOKING_TEST_AUTH_COOKIE_SECRET"
 ```
 
-If the TEST OIDC frontend application is confidential, also pass `frontendAuthClientSecret` from a protected secret variable or set `frontendAuthClientSecretUri` to an existing Key Vault secret URI that the web app identity can read.
+For an Auth0 Regular Web Application, pass `frontendAuthClientSecret` from a protected secret variable or set `frontendAuthClientSecretUri` to an existing Key Vault secret URI that the web app identity can read.
 
 After deployment, use the `webBaseUrl` output as the OIDC redirect origin and configure the identity provider callback URL as:
 
@@ -60,6 +60,8 @@ After deployment, use the `webBaseUrl` output as the OIDC redirect origin and co
 ```
 
 Use the `apiBaseUrl` output for smoke tests and frontend backend calls.
+
+Auth0 setup is documented in `docs/deployment/auth0.md`.
 
 The frontend App Service is configured to run the Next.js standalone artifact with `node server.js`. Deployment packages should include `.next/standalone` at the zip root and `.next/static` under the zip root.
 

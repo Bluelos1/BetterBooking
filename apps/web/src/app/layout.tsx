@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "BetterBooking",
-  description: "Secure booking marketplace foundation"
+  description: "Find and book apartments and hotels with BetterBooking."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

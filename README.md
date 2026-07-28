@@ -32,9 +32,9 @@ docker compose --file infra/local/docker-compose.yml up --build
 
 Then open `http://localhost:3000`. Compose runs PostgreSQL, a local-only OIDC provider, EF Core migrations, local demo seed data, the API on `http://localhost:5245`, and the frontend.
 
-Authenticated local flows work through the local sign-in and create-account panels by default. Choose Traveler to book and pay demo reservations, or Property admin to create and publish apartments/hotels. Use external OIDC environment variables only when testing real identity-provider integration; see `docs/development/local-e2e.md`.
+Authenticated local flows work through the local sign-in and create-account panels by default. Every signed-in account can book stays and publish its own apartments or hotels. Use external OIDC environment variables only when testing real identity-provider integration; see `docs/development/local-e2e.md`.
 
-Local account creation is simulated by the Docker OIDC provider. Production account creation must be configured in the real identity provider, not by storing passwords in this app.
+Local account creation is simulated by the Docker OIDC provider. Public account creation uses Auth0 Universal Login; BetterBooking never stores user passwords.
 
 The local payment flow is a demo confirmation flow only. It does not charge cards or replace a real payment-provider integration.
 

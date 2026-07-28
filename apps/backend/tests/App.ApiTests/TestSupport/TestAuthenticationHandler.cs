@@ -25,8 +25,7 @@ public sealed class TestAuthenticationHandler : AuthenticationHandler<Authentica
         var claims = new[]
         {
             new Claim(ClaimTypes.NameIdentifier, UserId.ToString()),
-            new Claim("betterbooking_user_id", UserId.ToString()),
-            new Claim("role", "admin")
+            new Claim("betterbooking_user_id", UserId.ToString())
         };
 
         var identity = new ClaimsIdentity(claims, SchemeName);

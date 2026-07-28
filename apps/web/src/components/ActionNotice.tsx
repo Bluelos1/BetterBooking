@@ -99,8 +99,7 @@ export function ActionNotice({ status, error }: ActionNoticeProps) {
   }
 
   return (
-    <section className={`action-notice ${message.kind}`} role="status">
-      <p className="eyebrow">{message.kind === "success" ? "Done" : "Action needed"}</p>
+    <section className={`action-notice ${message.kind}`} role={message.kind === "error" ? "alert" : "status"}>
       <h2>{message.title}</h2>
       <p>{message.body}</p>
     </section>

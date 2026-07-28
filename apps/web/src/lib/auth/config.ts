@@ -1,5 +1,6 @@
 export type AuthConfig = {
   issuer: string;
+  audience: string;
   clientId: string;
   clientSecret?: string;
   scopes: string;
@@ -13,6 +14,7 @@ export type AuthConfigResult =
 
 export function getAuthConfig(): AuthConfigResult {
   const issuer = trim(process.env.BETTERBOOKING_AUTH_ISSUER);
+  const audience = trim(process.env.BETTERBOOKING_AUTH_AUDIENCE);
   const clientId = trim(process.env.BETTERBOOKING_AUTH_CLIENT_ID);
   const clientSecret = trim(process.env.BETTERBOOKING_AUTH_CLIENT_SECRET);
   const scopes = trim(process.env.BETTERBOOKING_AUTH_SCOPES) ?? "openid profile email";
@@ -27,6 +29,10 @@ export function getAuthConfig(): AuthConfigResult {
     return { ok: false, error: "BETTERBOOKING_AUTH_CLIENT_ID is required." };
   }
 
+  if (!audience) {
+    return { ok: false, error: "BETTERBOOKING_AUTH_AUDIENCE is required." };
+  }
+
   if (!cookieSecret || cookieSecret.length < 32) {
     return { ok: false, error: "BETTERBOOKING_AUTH_COOKIE_SECRET must be at least 32 characters." };
   }
@@ -35,6 +41,7 @@ export function getAuthConfig(): AuthConfigResult {
     ok: true,
     config: {
       issuer: issuer.replace(/\/+$/, ""),
+      audience,
       clientId,
       clientSecret,
       scopes,

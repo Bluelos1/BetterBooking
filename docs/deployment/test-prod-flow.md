@@ -16,7 +16,7 @@
 - Run build, tests, formatting checks, dependency scan, secret scan, SAST, and IaC scan first.
 - Deploy or update TEST infrastructure from `infra/bicep/main.bicep` with TEST-only parameters and protected CI secrets.
 - Use the Bicep `webBaseUrl` output to configure the TEST identity-provider redirect URI: `<webBaseUrl>/api/auth/callback`.
-- Keep TEST OIDC issuer, client id, backend audience, backend API scope, and frontend cookie secret separate from PROD values.
+- Keep TEST Auth0 tenant/application, issuer, client id, API audience, client secret, and frontend cookie secret separate from PROD values.
 - Apply reviewed EF Core migrations to the TEST PostgreSQL database before routing smoke traffic to the new API build.
 - Deploy the backend and frontend artifacts to the TEST App Services created by Bicep.
 - Run smoke tests after deployment.
@@ -43,6 +43,8 @@ Required GitHub environment variables for `test`:
 - `AUTHENTICATION_AUDIENCE`
 - `FRONTEND_AUTH_CLIENT_ID`
 - `FRONTEND_AUTH_SCOPES`
+
+For Auth0 use `openid profile email`; `AUTHENTICATION_AUDIENCE` contains the separate Auth0 API Identifier.
 
 Optional GitHub environment variables for `test`:
 

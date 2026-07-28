@@ -7,7 +7,7 @@ import { SignInRequired } from "@/components/SignInRequired";
 import { StatusPill } from "@/components/StatusPill";
 import { getMyReservations } from "@/lib/api";
 import { getSession } from "@/lib/auth/session";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatDateOnly, formatDateTime } from "@/lib/format";
 
 type MyReservationsPageProps = {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -24,12 +24,13 @@ export default async function MyReservationsPage({ searchParams }: MyReservation
     return (
       <main className="page">
         <PageHeading />
-        <SignInRequired returnTo="/me/reservations" />
+        <SignInRequired returnTo="/me/reservations" title="Sign in to see your trips" />
       </main>
     );
   }
 
   const result = await getMyReservations({ page, pageSize: 20 }, session.accessToken);
+  const currentReturnTo = page > 1 ? `/me/reservations?page=${page}` : "/me/reservations";
 
   return (
     <main className="page">
@@ -40,61 +41,54 @@ export default async function MyReservationsPage({ searchParams }: MyReservation
         <SignInRequired returnTo="/me/reservations" />
       ) : !result.ok ? (
         <ApiErrorPanel context="My reservations" error={result.error} />
-      ) : result.data.items.length === 0 ? (
-        <EmptyState title="No trips yet" body="Find a published stay, hold dates, then complete the demo payment to confirm your reservation." />
+      ) : result.data.totalCount === 0 ? (
+        <EmptyState title="No trips yet" body="Find a stay and choose your dates to get started." actionHref="/" actionLabel="Explore stays" />
       ) : (
-        <section className="table-card" aria-label="My reservations table">
+        <section className="table-card" aria-label="My reservations">
           <PaginationSummary
             page={result.data.page}
             pageSize={result.data.pageSize}
             totalCount={result.data.totalCount}
             hasNextPage={result.data.hasNextPage}
+            basePath="/me/reservations"
           />
-          <div className="responsive-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Listing</th>
-                  <th>Dates</th>
-                  <th>Status</th>
-                  <th>Payment</th>
-                  <th>Updated</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {result.data.items.map((reservation) => (
-                  <tr key={reservation.id}>
-                    <td>
-                      <Link className="text-link" href={`/listings/${reservation.listingId}`}>
-                        {reservation.listingTitle}
-                      </Link>
-                    </td>
-                    <td>{formatDate(reservation.startDate)} - {formatDate(reservation.endDate)}</td>
-                    <td><StatusPill status={reservation.status} /></td>
-                    <td><StatusPill status={reservation.paymentStatus} /></td>
-                    <td>{formatDateTime(reservation.updatedAt)}</td>
-                    <td>
-                      <div className="action-row">
-                        {reservation.status === "Pending" && reservation.paymentStatus === "Unpaid" ? (
-                          <form action={`/api/reservations/${reservation.id}/payment/confirm`} method="post">
-                            <input type="hidden" name="returnTo" value="/me/reservations" />
-                            <button className="button compact primary" type="submit">Pay demo</button>
-                          </form>
-                        ) : null}
-                        {reservation.status === "Pending" || reservation.status === "Confirmed" ? (
-                          <form action={`/api/reservations/${reservation.id}/cancel`} method="post">
-                            <input type="hidden" name="returnTo" value="/me/reservations" />
-                            <button className="button compact danger" type="submit">Cancel</button>
-                          </form>
-                        ) : null}
-                        {reservation.status !== "Pending" && reservation.status !== "Confirmed" ? <span className="muted">No actions</span> : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="trip-list">
+            {result.data.items.length === 0 ? (
+              <EmptyState
+                title="This page is empty"
+                body="Return to the previous page to continue reviewing your trips."
+                actionHref={`/me/reservations?page=${Math.max(1, page - 1)}`}
+                actionLabel="Previous page"
+              />
+            ) : null}
+            {result.data.items.map((reservation) => (
+              <article className="trip-card" key={reservation.id}>
+                <div className="trip-main">
+                  <Link className="text-link" href={`/listings/${reservation.listingId}`}>{reservation.listingTitle}</Link>
+                  <strong>{formatDateOnly(reservation.startDate)} - {formatDateOnly(reservation.endDate)}</strong>
+                  <span className="muted">Updated {formatDateTime(reservation.updatedAt)}</span>
+                </div>
+                <div className="trip-statuses" aria-label="Reservation status">
+                  <StatusPill status={reservation.status} />
+                  <StatusPill status={reservation.paymentStatus} />
+                </div>
+                <div className="action-row">
+                  {reservation.status === "Pending" && reservation.paymentStatus === "Unpaid" ? (
+                    <form action={`/api/reservations/${reservation.id}/payment/confirm`} method="post">
+                      <input type="hidden" name="returnTo" value={currentReturnTo} />
+                      <button className="button compact primary" type="submit">Complete demo payment</button>
+                    </form>
+                  ) : null}
+                  {reservation.status === "Pending" || reservation.status === "Confirmed" ? (
+                    <form action={`/api/reservations/${reservation.id}/cancel`} method="post">
+                      <input type="hidden" name="returnTo" value={currentReturnTo} />
+                      <button className="button compact danger" type="submit">Cancel</button>
+                    </form>
+                  ) : null}
+                  {reservation.status !== "Pending" && reservation.status !== "Confirmed" ? <span className="muted">No actions</span> : null}
+                </div>
+              </article>
+            ))}
           </div>
         </section>
       )}
@@ -105,9 +99,8 @@ export default async function MyReservationsPage({ searchParams }: MyReservation
 function PageHeading() {
   return (
     <section className="page-heading">
-      <p className="eyebrow">Guest workspace</p>
       <h1>Trips</h1>
-      <p>Review held and confirmed stays, complete demo payments, or cancel active reservations.</p>
+      <p>Review upcoming stays, complete payment, or cancel a reservation.</p>
     </section>
   );
 }

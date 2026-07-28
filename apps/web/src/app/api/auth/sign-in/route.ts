@@ -15,7 +15,6 @@ export async function GET(request: Request) {
 
   try {
     const url = new URL(request.url);
-    const persona = getPersona(url.searchParams.get("persona"));
     const screenHint = getScreenHint(url.searchParams.get("screen"));
     const metadata = await discoverOidcMetadata(configResult.config.issuer);
     const transaction = createAuthTransaction(
@@ -23,7 +22,6 @@ export async function GET(request: Request) {
       getRedirectUri(request.url, configResult.config.webBaseUrl)
     );
     const response = NextResponse.redirect(buildAuthorizationUrl(metadata, configResult.config, transaction, {
-      loginHint: persona,
       screenHint
     }));
 
@@ -36,10 +34,6 @@ export async function GET(request: Request) {
   } catch {
     return new Response("OIDC sign-in could not be started.", { status: 502 });
   }
-}
-
-function getPersona(value: string | null): string | undefined {
-  return value === "admin" || value === "guest" ? value : undefined;
 }
 
 function getScreenHint(value: string | null): "signup" | undefined {

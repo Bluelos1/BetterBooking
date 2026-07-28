@@ -43,13 +43,6 @@ public static class ApiAuthenticationServiceCollectionExtensions
         services.AddAuthorization(options =>
         {
             options.AddPolicy(AuthorizationPolicies.AuthenticatedUser, policy => policy.RequireAuthenticatedUser());
-            options.AddPolicy(AuthorizationPolicies.PropertyAdmin, policy => policy
-                .RequireAuthenticatedUser()
-                .RequireAssertion(context =>
-                    context.User.HasClaim("role", "admin") ||
-                    context.User.HasClaim("role", "host") ||
-                    context.User.IsInRole("admin") ||
-                    context.User.IsInRole("host")));
         });
 
         return services;

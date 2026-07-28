@@ -36,16 +36,14 @@ docker compose --file infra/local/docker-compose.yml down --volumes
 
 ## Authentication
 
-By default, Compose runs a local-only OIDC provider and configures the API and frontend to use it. The app sign-in and create-account panels let you choose:
-
-- Traveler: books stays and manages trips.
-- Property admin: creates and publishes hotel/apartment listings.
+By default, Compose runs a local-only OIDC provider and configures the API and frontend to use it. Every local identity can book stays and create or publish listings it owns. Two sample identities are available to test ownership isolation.
 
 The OIDC provider is reachable at `http://localhost:5080` and issues signed local JWTs for development only. Its registration form is intentionally local-only and does not store production passwords.
 
 To use a real external OIDC provider instead, set these environment variables before running Compose:
 
 - `BETTERBOOKING_AUTH_ISSUER`.
+- `BETTERBOOKING_AUTH_AUDIENCE`.
 - `BETTERBOOKING_AUTH_AUDIENCE`.
 - `BETTERBOOKING_AUTH_CLIENT_ID`.
 - `BETTERBOOKING_AUTH_CLIENT_SECRET`, only when required by the provider.

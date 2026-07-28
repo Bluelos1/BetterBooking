@@ -45,6 +45,8 @@ builder.Services.AddRequestTimeouts(options =>
 
 var reservationRateLimitPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:ReservationCreation:PermitLimit") ?? 20;
 var reservationRateLimitWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:ReservationCreation:WindowSeconds") ?? 60;
+var listingRateLimitPermitLimit = builder.Configuration.GetValue<int?>("RateLimiting:ListingCreation:PermitLimit") ?? 10;
+var listingRateLimitWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:ListingCreation:WindowSeconds") ?? 3600;
 
 builder.Services.AddRateLimiter(options =>
 {
@@ -62,6 +64,21 @@ builder.Services.AddRateLimiter(options =>
             PermitLimit = reservationRateLimitPermitLimit,
             QueueLimit = 0,
             Window = TimeSpan.FromSeconds(reservationRateLimitWindowSeconds)
+        });
+    });
+
+    options.AddPolicy(RateLimitPolicies.ListingCreation, httpContext =>
+    {
+        var partitionKey = httpContext.User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+            httpContext.Connection.RemoteIpAddress?.ToString() ??
+            "anonymous";
+
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            AutoReplenishment = true,
+            PermitLimit = listingRateLimitPermitLimit,
+            QueueLimit = 0,
+            Window = TimeSpan.FromSeconds(listingRateLimitWindowSeconds)
         });
     });
 });

@@ -18,7 +18,7 @@
       "value": "replace-with-test-frontend-client-id"
     },
     "frontendAuthScopes": {
-      "value": "openid profile email replace-with-test-api-scope"
+      "value": "openid profile email"
     },
     "aspNetCoreEnvironment": {
       "value": "Test"

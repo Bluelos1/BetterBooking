@@ -18,14 +18,14 @@ This checklist is intentionally practical and will evolve with implementation.
 
 ## Required Before Production
 
-- Microsoft Entra External ID or another secure OIDC provider.
+- Auth0 Universal Login with public database signup, email verification, breached-password protection, and abuse controls.
 - Configure API JWT validation with production issuer and audience.
 - Configure frontend OIDC runtime settings outside source control.
 - Store frontend browser sessions only in encrypted Secure, HttpOnly, SameSite cookies.
-- Request backend API scopes explicitly so frontend access tokens have the expected API audience.
+- Request the Auth0 API audience explicitly; keep OIDC scopes separate.
 - Map external identities to internal user ids before enabling user-facing reservation creation.
 - Do not accept owner or guest user ids from browser request bodies.
-- Policy-based authorization for admin and owner actions.
+- Enforce listing ownership in backend handlers; never accept owner ids from the browser.
 - Audit logging for admin actions, auth failures, reservation changes, payment events, listing changes, and account changes.
 - Dependency vulnerability scanning in CI.
 - Secret scanning in CI.

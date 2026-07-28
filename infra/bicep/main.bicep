@@ -21,7 +21,7 @@ param authenticationAudience string
 @description('Frontend OIDC application client id.')
 param frontendAuthClientId string
 
-@description('Frontend OIDC scopes, including openid/profile/email and the backend API scope.')
+@description('Frontend OIDC scopes, normally openid profile email. The API audience is configured separately.')
 param frontendAuthScopes string
 
 @secure()
@@ -362,6 +362,7 @@ resource webAppSettings 'Microsoft.Web/sites/config@2023-12-01' = {
     BETTERBOOKING_API_BASE_URL: apiBaseUrl
     BETTERBOOKING_WEB_BASE_URL: webBaseUrl
     BETTERBOOKING_AUTH_ISSUER: authenticationAuthority
+    BETTERBOOKING_AUTH_AUDIENCE: authenticationAudience
     BETTERBOOKING_AUTH_CLIENT_ID: frontendAuthClientId
     BETTERBOOKING_AUTH_SCOPES: frontendAuthScopes
     BETTERBOOKING_AUTH_COOKIE_SECRET: '@Microsoft.KeyVault(SecretUri=${frontendAuthCookieSecretSecret.properties.secretUri})'

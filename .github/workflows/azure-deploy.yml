@@ -230,6 +230,11 @@ jobs:
             require POSTGRESQL_ADMIN_PASSWORD
             require FRONTEND_AUTH_COOKIE_SECRET
 
+            if [ -z "${FRONTEND_AUTH_CLIENT_SECRET:-}" ] && [ -z "${FRONTEND_AUTH_CLIENT_SECRET_URI:-}" ]; then
+              echo "::error::FRONTEND_AUTH_CLIENT_SECRET or FRONTEND_AUTH_CLIENT_SECRET_URI is required."
+              exit 1
+            fi
+
             name_prefix="${AZURE_NAME_PREFIX:-betterbooking-${TARGET_ENVIRONMENT}}"
             aspnetcore_environment="Test"
             if [ "$TARGET_ENVIRONMENT" = "prod" ]; then

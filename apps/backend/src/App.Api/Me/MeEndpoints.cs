@@ -18,7 +18,6 @@ public static class MeEndpoints
 
         group.MapGet("/listings", GetMyListingsAsync)
             .WithName("GetMyListings")
-            .RequireAuthorization(AuthorizationPolicies.PropertyAdmin)
             .Produces<MyListingsResponse>()
             .ProducesValidationProblem()
             .ProducesProblem(StatusCodes.Status401Unauthorized)

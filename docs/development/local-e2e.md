@@ -7,7 +7,7 @@ This guide gets the local app to a real end-to-end flow without storing secrets 
 - .NET SDK matching `global.json`.
 - Docker Desktop or another Docker-compatible runtime.
 - Node.js and npm.
-- Docker Compose includes a local-only OIDC provider. Use a real OIDC provider, such as Microsoft Entra External ID, only when you want to test external identity-provider integration.
+- Docker Compose includes a local-only OIDC provider. Use Auth0 only when you want to test external identity-provider integration.
 
 ## Identity Provider Checklist
 
@@ -15,7 +15,7 @@ This guide gets the local app to a real end-to-end flow without storing secrets 
 - Expose a backend API scope for frontend access tokens.
 - Register a frontend web application.
 - Add `http://localhost:3000/api/auth/callback` as a redirect URI for local development.
-- Ensure the frontend requests the backend API scope in `BETTERBOOKING_AUTH_SCOPES`.
+- Set `BETTERBOOKING_AUTH_AUDIENCE` to the Auth0 API Identifier and use `openid profile email` scopes.
 - Configure the backend JWT audience to match the access token audience issued for the API.
 - Do not reuse TEST or PROD identities for local development.
 
@@ -23,7 +23,7 @@ This guide gets the local app to a real end-to-end flow without storing secrets 
 
 The Docker Compose path generates local-only PostgreSQL and frontend cookie secrets inside a Docker named volume. Do not write real secrets into source files, docs, committed env files, or logs.
 
-Docker Compose provides default local OIDC settings, so authenticated local smoke testing works without external identity-provider setup. The app sign-in and create-account pages let you choose Traveler or Property admin.
+Docker Compose provides default local OIDC settings, so authenticated local smoke testing works without external identity-provider setup. Every account can book stays and manage its own listings.
 
 Set OIDC values from a real provider only when you want to test external identity integration:
 
@@ -32,7 +32,7 @@ export BETTERBOOKING_AUTH_ISSUER="<local-oidc-issuer>"
 export BETTERBOOKING_AUTH_AUDIENCE="<backend-api-audience>"
 export BETTERBOOKING_AUTH_CLIENT_ID="<frontend-client-id>"
 export BETTERBOOKING_AUTH_CLIENT_SECRET="<frontend-client-secret-if-required>"
-export BETTERBOOKING_AUTH_SCOPES="openid profile email <backend-api-scope>"
+export BETTERBOOKING_AUTH_SCOPES="openid profile email"
 export BETTERBOOKING_WEB_BASE_URL="http://localhost:3000"
 ```
 
@@ -75,9 +75,10 @@ Set OIDC values from your local identity provider configuration in the same shel
 export Authentication__Authority="<local-oidc-issuer>"
 export Authentication__Audience="<backend-api-audience>"
 export BETTERBOOKING_AUTH_ISSUER="$Authentication__Authority"
+export BETTERBOOKING_AUTH_AUDIENCE="$Authentication__Audience"
 export BETTERBOOKING_AUTH_CLIENT_ID="<frontend-client-id>"
 export BETTERBOOKING_AUTH_CLIENT_SECRET="<frontend-client-secret-if-required>"
-export BETTERBOOKING_AUTH_SCOPES="openid profile email <backend-api-scope>"
+export BETTERBOOKING_AUTH_SCOPES="openid profile email"
 export BETTERBOOKING_WEB_BASE_URL="http://localhost:3000"
 export BETTERBOOKING_API_BASE_URL="http://localhost:5245"
 ```
@@ -129,9 +130,9 @@ npm run dev --prefix apps/web
 ## Manual E2E Smoke Flow
 
 - Open `http://localhost:3000`.
-- Use `Create account` to create a local Traveler or Property admin identity, or use `Sign in` to use the built-in sample identities.
+- Use `Create account` to create a local identity, or use `Sign in` to choose a built-in sample identity.
 - Sign in from the header.
-- Choose Property admin to create and publish listings.
+- Any signed-in identity can create and publish listings it owns.
 - Open `/me/listings`.
 - Create a detailed draft listing.
 - Publish the listing.

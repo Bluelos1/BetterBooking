@@ -6,6 +6,7 @@ import type { SessionUser } from "./oidc";
 
 export type AuthSession = {
   accessToken: string;
+  idToken?: string;
   expiresAt: number;
   user: SessionUser;
 };

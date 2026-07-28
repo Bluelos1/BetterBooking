@@ -14,16 +14,16 @@ const personas = {
     name: process.env.LOCAL_OIDC_GUEST_NAME ?? "Maja Traveler",
     email: process.env.LOCAL_OIDC_GUEST_EMAIL ?? "traveler@example.test",
     role: "user",
-    label: "Traveler",
-    description: "Book stays, check availability, pay demo reservations, and manage trips."
+    label: "Maja's account",
+    description: "Book stays, publish properties, and manage Maja's own data."
   },
   admin: {
     sub: process.env.LOCAL_OIDC_ADMIN_SUB ?? "local-admin-1",
     name: process.env.LOCAL_OIDC_ADMIN_NAME ?? "Mateusz Host Admin",
     email: process.env.LOCAL_OIDC_ADMIN_EMAIL ?? "host@example.test",
     role: "admin",
-    label: "Property admin",
-    description: "Create apartments or hotels, publish listings, and manage host inventory."
+    label: "Mateusz's account",
+    description: "Use a second identity to test ownership boundaries and separate listings."
   }
 };
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -85,18 +85,19 @@ function authorize(url, response) {
   const requestedClientId = url.searchParams.get("client_id");
   const redirectUri = url.searchParams.get("redirect_uri");
   const state = url.searchParams.get("state");
+  const nonce = url.searchParams.get("nonce");
   const codeChallenge = url.searchParams.get("code_challenge");
   const codeChallengeMethod = url.searchParams.get("code_challenge_method");
   const loginHint = url.searchParams.get("login_hint");
   const screenHint = url.searchParams.get("screen_hint");
   const persona = personas[loginHint] ? loginHint : url.searchParams.get("persona");
 
-  if (requestedClientId !== clientId || !redirectUri || !state || !codeChallenge || codeChallengeMethod !== "S256") {
+  if (requestedClientId !== clientId || !redirectUri || !state || !nonce || !codeChallenge || codeChallengeMethod !== "S256") {
     return sendJson(response, 400, { error: "invalid_request" });
   }
 
   if (screenHint === "signup") {
-    return sendRegistrationPanel(url, response, personas[persona] ? persona : "guest");
+    return sendRegistrationPanel(url, response);
   }
 
   if (!personas[persona]) {
@@ -107,6 +108,7 @@ function authorize(url, response) {
     clientId: requestedClientId,
     redirectUri,
     codeChallenge,
+    nonce,
     persona
   });
 }
@@ -116,6 +118,7 @@ async function register(request, response) {
   const requestedClientId = form.get("client_id");
   const redirectUri = form.get("redirect_uri");
   const state = form.get("state");
+  const nonce = form.get("nonce");
   const codeChallenge = form.get("code_challenge");
   const codeChallengeMethod = form.get("code_challenge_method");
   const personaKey = personas[form.get("persona")] ? form.get("persona") : "guest";
@@ -124,7 +127,7 @@ async function register(request, response) {
   const email = normalizeEmail(form.get("email"), persona.email);
   const subject = `local-signup-${personaKey}-${hashForSubject(email)}`;
 
-  if (requestedClientId !== clientId || !redirectUri || !state || !codeChallenge || codeChallengeMethod !== "S256") {
+  if (requestedClientId !== clientId || !redirectUri || !state || !nonce || !codeChallenge || codeChallengeMethod !== "S256") {
     return sendJson(response, 400, { error: "invalid_request" });
   }
 
@@ -132,6 +135,7 @@ async function register(request, response) {
     clientId: requestedClientId,
     redirectUri,
     codeChallenge,
+    nonce,
     persona: personaKey,
     user: {
       sub: subject,
@@ -209,6 +213,7 @@ async function token(request, response) {
       iat: now,
       nbf: now,
       exp: now + expiresIn,
+      nonce: authorizationCode.nonce,
       ...userClaims
     }),
     token_type: "Bearer",
@@ -251,7 +256,7 @@ function sendLoginPanel(url, response) {
     <section class="panel">
       <small>Local development identity provider</small>
       <h1>Choose how to test BetterBooking.</h1>
-      <p>This screen exists only in Docker local development. It issues signed local JWTs so the app can test guest and property-admin flows without external secrets.</p>
+      <p>This screen exists only in Docker local development. Both sample identities can book stays and publish their own properties.</p>
       <div class="grid">
         <a href="${escapeHtml(guestUrl)}"><strong>${escapeHtml(personas.guest.label)}</strong><span>${escapeHtml(personas.guest.description)}</span></a>
         <a href="${escapeHtml(adminUrl)}"><strong>${escapeHtml(personas.admin.label)}</strong><span>${escapeHtml(personas.admin.description)}</span></a>
@@ -262,13 +267,14 @@ function sendLoginPanel(url, response) {
 </html>`);
 }
 
-function sendRegistrationPanel(url, response, selectedPersona) {
+function sendRegistrationPanel(url, response) {
   const hiddenFields = [
     "client_id",
     "redirect_uri",
     "response_type",
     "scope",
     "state",
+    "nonce",
     "code_challenge",
     "code_challenge_method"
   ].map((name) => `<input type="hidden" name="${name}" value="${escapeHtml(url.searchParams.get(name) ?? "")}" />`).join("\n");
@@ -291,11 +297,8 @@ function sendRegistrationPanel(url, response, selectedPersona) {
     p, span { color: rgb(255 250 240 / 72%); line-height: 1.65; }
     label { display: grid; gap: 8px; font-weight: 800; }
     input[type="text"], input[type="email"] { width: 100%; border: 1px solid rgb(255 250 240 / 18%); border-radius: 16px; background: #fffaf0; color: #102016; padding: 14px 16px; font: inherit; }
-    .roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .role-option { border: 1px solid rgb(255 250 240 / 18%); border-radius: 18px; padding: 16px; background: rgb(255 250 240 / 9%); }
     button { border: 0; border-radius: 999px; background: #fffaf0; color: #102016; cursor: pointer; font: inherit; font-weight: 900; padding: 16px 20px; }
     small { color: rgb(255 250 240 / 55%); }
-    @media (max-width: 680px) { .roles { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -313,18 +316,6 @@ function sendRegistrationPanel(url, response, selectedPersona) {
         Email
         <input name="email" type="email" autocomplete="email" maxlength="320" placeholder="alex@example.test" required />
       </label>
-      <div class="roles" role="radiogroup" aria-label="Account type">
-        <label class="role-option">
-          <input type="radio" name="persona" value="guest" ${selectedPersona === "guest" ? "checked" : ""} />
-          Traveler
-          <span>Book stays and manage trips.</span>
-        </label>
-        <label class="role-option">
-          <input type="radio" name="persona" value="admin" ${selectedPersona === "admin" ? "checked" : ""} />
-          Property owner
-          <span>Create and publish hotels or apartments.</span>
-        </label>
-      </div>
       <button type="submit">Create account and continue</button>
     </form>
   </main>
